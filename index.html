@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>余烬回廊 · 艾尔登法环工具</title>
+  <meta name="description" content="环地图点位、法环大图鉴、支线树、开荒引导与梗百科。纯前端运行，数据只存本地。" />
+  <meta name="theme-color" content="#121212" />
+  <meta name="color-scheme" content="dark" />
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="余烬回廊" />
+
+  <!-- MapLibre GL（仅地图视图使用） -->
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+  <link rel="stylesheet" href="assets/app.css" />
+</head>
+
+<body>
+  <!-- ===== 顶栏：品牌 / 导航 / 全局剧透等级 ===== -->
+  <header class="topbar">
+    <a class="brand" href="#/map">余烬回廊<span class="brand-sub">ER TOOLKIT</span></a>
+
+    <nav class="tabs" aria-label="主导航">
+      <a href="#/map" data-view="map">地图</a>
+      <a href="#/codex" data-view="codex">图鉴</a>
+      <a href="#/quests" data-view="quests">支线</a>
+      <a href="#/guide" data-view="guide">开荒</a>
+      <a href="#/memes" data-view="memes">梗百科</a>
+      <a href="#/mods" data-view="mods">MOD</a>
+      <a href="#/save" data-view="save">存档</a>
+    </nav>
+
+    <div class="spoiler">
+      <label for="spoilerSelect">剧透</label>
+      <select id="spoilerSelect" aria-label="剧透等级">
+        <option value="0">0 级 · 安全</option>
+        <option value="1">1 级 · 中度</option>
+        <option value="2">2 级 · 完全</option>
+      </select>
+      <!-- 浏览器支持安装时才会显示 -->
+      <button id="installBtn" class="btn-ghost" type="button" hidden>安装</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ===== 1. 地图 ===== -->
+    <section class="view" id="view-map" data-view="map">
+      <div class="map-shell">
+        <div id="map" class="map-canvas"></div>
+
+        <!-- 左上：图层 + 搜索 -->
+        <aside class="panel panel-left">
+          <div class="panel-head">图层</div>
+          <div class="layers" id="layerToggles">
+            <label><input type="checkbox" data-layer="grace" checked /> <i class="dot dot-grace"></i>赐福</label>
+            <label><input type="checkbox" data-layer="npc" checked /> <i class="dot dot-npc"></i>NPC</label>
+            <label><input type="checkbox" data-layer="item" checked /> <i class="dot dot-item"></i>道具</label>
+            <label><input type="checkbox" data-layer="ruin" checked /> <i class="dot dot-ruin"></i>遗迹</label>
+          </div>
+
+          <div class="panel-head">搜索点位</div>
+          <input id="poiSearch" class="input" type="search" placeholder="输入地名 / NPC 名" />
+          <ul id="poiResults" class="result-list"></ul>
+          <p class="hint" id="poiHint">共 0 个点位</p>
+        </aside>
+
+        <!-- 右下：支线树浮层开关 -->
+        <button id="treeToggle" class="map-fab" type="button" aria-expanded="false">支线树</button>
+
+        <aside id="treeOverlay" class="panel panel-right" hidden>
+          <div class="panel-head">
+            支线树
+            <button id="treeOverlayClose" class="icon-btn" type="button" aria-label="关闭">×</button>
+          </div>
+          <select id="treeQuestSelect" class="input"></select>
+          <div class="tree-tools">
+            <button data-tree="out" class="icon-btn" type="button">−</button>
+            <span id="treeZoomLabel">100%</span>
+            <button data-tree="in" class="icon-btn" type="button">＋</button>
+            <button data-tree="reset" class="icon-btn" type="button">复位</button>
+          </div>
+          <div id="treeHost" class="tree-host"></div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ===== 2. 图鉴 ===== -->
+    <section class="view" id="view-codex" data-view="codex" hidden>
+      <div class="page-head">
+        <h1>法环大图鉴</h1>
+        <p>武器 / 护甲 / 护符 / 魔法 / NPC / BOSS，可勾选两件做属性对比，也能写自己的备注。</p>
+      </div>
+
+      <div class="toolbar">
+        <div class="chips" id="codexCats"></div>
+        <input id="codexSearch" class="input" type="search" placeholder="搜索名称或关键词" style="max-width:280px" />
+      </div>
+
+      <div id="codexGrid" class="card-grid"></div>
+      <p id="codexEmpty" class="empty" hidden>没有匹配的条目。</p>
+
+      <div class="compare-bar" id="compareBar" hidden>
+        <span id="compareInfo">选择两件装备进行对比</span>
+        <button id="compareClear" class="btn-ghost" type="button">清空</button>
+      </div>
+      <div id="compareBox" class="compare-box" hidden></div>
+    </section>
+
+    <!-- ===== 3. 支线 ===== -->
+    <section class="view" id="view-quests" data-view="quests" hidden>
+      <div class="page-head">
+        <h1>支线总览</h1>
+        <p>共 <b id="questCount">0</b> 条支线。点击节点可标记进度，剧透等级控制结局与奖励的显示。</p>
+      </div>
+
+      <div class="toolbar">
+        <div class="chips" id="questFilters"></div>
+        <div class="tree-tools">
+          <button data-tree="out" class="icon-btn" type="button">−</button>
+          <span id="questZoomLabel">100%</span>
+          <button data-tree="in" class="icon-btn" type="button">＋</button>
+          <button data-tree="reset" class="icon-btn" type="button">复位</button>
+        </div>
+      </div>
+
+      <div id="questTreeHost" class="tree-host tree-full"></div>
+
+      <h2 class="subhead">逐条推进</h2>
+      <div id="questList" class="quest-list"></div>
+    </section>
+
+    <!-- ===== 4. 开荒引导 ===== -->
+    <section class="view" id="view-guide" data-view="guide" hidden>
+      <div class="page-head">
+        <h1>新手开荒引导</h1>
+        <p>按当前剧透等级与支线进度给出建议，不会提前透露结局。</p>
+      </div>
+      <div id="guideList" class="guide-list"></div>
+    </section>
+
+    <!-- ===== 5. 梗百科 ===== -->
+    <section class="view" id="view-memes" data-view="memes" hidden>
+      <div class="page-head">
+        <h1>梗百科</h1>
+        <p>社区常用说法，标注可能涉及的地图点位。</p>
+      </div>
+      <div id="memeGrid" class="card-grid"></div>
+    </section>
+
+    <!-- ===== 6. MOD 指引 ===== -->
+    <section class="view" id="view-mods" data-view="mods" hidden>
+      <div class="page-head">
+        <h1>MOD 指引</h1>
+        <p>仅整理说明，不提供下载。联机前请关闭所有 MOD。</p>
+      </div>
+      <div class="toolbar">
+        <div class="chips" id="modTags"></div>
+        <input id="modSearch" class="input" type="search" placeholder="搜索 MOD 名称或说明" style="max-width:280px" />
+      </div>
+      <div id="modList" class="mod-list"></div>
+    </section>
+    <!-- ===== 7. 存档解析 ===== -->
+    <section class="view" id="view-save" data-view="save" hidden>
+      <div class="page-head">
+        <h1>存档解析</h1>
+        <p>读取本地 <code>.sl2</code> 存档，把进度同步点亮到支线树。文件不上传，结果只存本地。</p>
+      </div>
+
+      <div class="card" style="max-width:720px">
+        <div id="dropZone" class="dropzone">
+          <p>点击选择文件，或把存档拖到这里</p>
+          <p class="hint">支持 .sl2 / .co2，解析前建议先备份一份</p>
+          <p id="fileName" class="hint" style="margin-top:10px">尚未选择文件</p>
+          <input type="file" id="fileInput" accept=".sl2,.co2" hidden />
+        </div>
+
+        <div class="card-actions" style="margin-top:14px">
+          <button class="btn" id="parseBtn" type="button" disabled>开始解析</button>
+          <button class="btn-ghost" id="demoBtn" type="button">用示例数据演示</button>
+          <a class="btn-ghost" href="#/quests">去支线树</a>
+        </div>
+
+        <div id="progressBox" style="margin-top:16px" hidden>
+          <div class="kv"><span id="progressText">准备解析…</span><b id="progressPct">0%</b></div>
+          <div class="progress-line" style="margin-top:8px"><i id="progressBar"></i></div>
+        </div>
+
+        <div id="resultBox" style="margin-top:16px" hidden>
+          <div class="result-grid" id="resultGrid"></div>
+          <div class="card-actions">
+            <button class="btn-ghost" id="clearBtn" type="button">清除本地进度</button>
+          </div>
+        </div>
+
+        <p class="hint" style="margin-top:14px">
+          当前为前端演示解析：进度由存档字节生成，不读取真实存档结构。接入真实解析器时，只需让
+          <code>parseSave()</code> 返回 <code>{ 支线id: 已完成阶段数 }</code>，其余逻辑不用改。
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <!-- 移动端底部导航 -->
+  <nav class="bottombar" aria-label="底部导航">
+    <a href="#/map" data-view="map">地图</a>
+    <a href="#/codex" data-view="codex">图鉴</a>
+    <a href="#/quests" data-view="quests">支线</a>
+    <a href="#/guide" data-view="guide">开荒</a>
+    <a href="#/memes" data-view="memes">梗</a>
+    <a href="#/mods" data-view="mods">MOD</a>
+    <a href="#/save" data-view="save">存档</a>
+  </nav>
+
+  <!-- 通用弹窗 -->
+  <div class="modal" id="modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true">
+      <button class="modal-close" id="modalClose" type="button" aria-label="关闭">×</button>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- 模块按依赖顺序加载（普通 script，便于离线与 file:// 调试） -->
+  <script src="assets/js/store.js"></script>
+  <script src="assets/js/tree.js"></script>
+  <script src="assets/js/map.js"></script>
+  <script src="assets/js/codex.js"></script>
+  <script src="assets/js/quests.js"></script>
+  <script src="assets/js/guide.js"></script>
+  <script src="assets/js/memes.js"></script>
+  <script src="assets/js/mods.js"></script>
+  <script src="assets/js/save.js"></script>
+  <script src="assets/js/main.js"></script>
+</body>
+</html>
